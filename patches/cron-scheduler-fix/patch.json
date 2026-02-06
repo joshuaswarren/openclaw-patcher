@@ -1,0 +1,12 @@
+{
+  "name": "cron-scheduler-fix",
+  "description": "Fix cron scheduler stall after SIGUSR1 restart and recomputeNextRuns race condition (upstream PR #10350)",
+  "issue": "https://github.com/openclaw/openclaw/pull/10350",
+  "enabled": true,
+  "targetFiles": ["dist/gateway-cli-*.js"],
+  "type": "js",
+  "appliedAt": null,
+  "appliedVersion": null,
+  "resolvedAt": null,
+  "resolvedReason": null
+}
