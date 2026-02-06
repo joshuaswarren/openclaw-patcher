@@ -1,0 +1,59 @@
+{
+  "id": "openclaw-patcher",
+  "kind": "utility",
+  "displayName": "Patcher",
+  "description": "Automatically re-apply user-defined patches to OpenClaw files after version updates.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "openclawInstallDir": {
+        "type": "string",
+        "default": "/opt/homebrew/lib/node_modules/openclaw",
+        "description": "Path to the OpenClaw npm installation directory"
+      },
+      "patchesDir": {
+        "type": "string",
+        "description": "Override the patches directory (default: <plugin-dir>/patches)"
+      },
+      "autoApplyOnStart": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically apply patches on gateway_start"
+      },
+      "backupBeforePatch": {
+        "type": "boolean",
+        "default": true,
+        "description": "Create a backup of target files before patching"
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable debug logging"
+      }
+    }
+  },
+  "uiHints": {
+    "openclawInstallDir": {
+      "label": "OpenClaw Install Directory",
+      "placeholder": "/opt/homebrew/lib/node_modules/openclaw"
+    },
+    "patchesDir": {
+      "label": "Patches Directory",
+      "advanced": true,
+      "placeholder": "~/.openclaw/extensions/openclaw-patcher/patches"
+    },
+    "autoApplyOnStart": {
+      "label": "Auto-Apply on Start",
+      "help": "Automatically check and apply patches when the gateway starts"
+    },
+    "backupBeforePatch": {
+      "label": "Backup Before Patch",
+      "help": "Create .bak files before modifying target files"
+    },
+    "debug": {
+      "label": "Debug Mode",
+      "advanced": true
+    }
+  }
+}

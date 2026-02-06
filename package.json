@@ -1,0 +1,57 @@
+{
+  "name": "openclaw-patcher",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automatically re-apply patches to OpenClaw's installed files after version updates.",
+  "keywords": [
+    "openclaw",
+    "patcher",
+    "patch",
+    "plugin",
+    "auto-patch",
+    "post-update",
+    "hotfix",
+    "utility"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joshuaswarren/openclaw-patcher.git"
+  },
+  "homepage": "https://github.com/joshuaswarren/openclaw-patcher#readme",
+  "bugs": {
+    "url": "https://github.com/joshuaswarren/openclaw-patcher/issues"
+  },
+  "author": "Joshua Warren",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "plugin": "./openclaw.plugin.json",
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "check-types": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "_template",
+  "description": "Template patch -- copy this directory and rename it to create a new patch. This patch is disabled and will never be applied.",
+  "issue": "",
+  "enabled": false,
+  "targetFiles": ["dist/gateway-cli-*.js"],
+  "type": "js",
+  "appliedAt": null,
+  "appliedVersion": null,
+  "resolvedAt": null,
+  "resolvedReason": null
+}

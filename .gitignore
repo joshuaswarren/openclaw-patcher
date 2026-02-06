@@ -1,0 +1,29 @@
+# Build output
+dist/
+*.map
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Patcher state (local to each installation)
+patches/.patcher-state.json
+patches/*/.bak
+
+# Auto-generated claude-mem context files
+CLAUDE.md
+src/CLAUDE.md
