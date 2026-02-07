@@ -19,34 +19,29 @@ export default {
     const manager = new PatchManager(cfg);
 
     // ========================================================================
-    // HOOK: gateway_start - Auto-apply patches if enabled
-    // ========================================================================
-    api.on("gateway_start", async () => {
-      if (!cfg.autoApplyOnStart) {
-        log.debug("auto-apply disabled; skipping patch check");
-        return;
-      }
-
-      try {
-        await manager.runAutoApply();
-      } catch (err) {
-        log.error("auto-apply failed on gateway_start", err);
-      }
-    });
-
-    // ========================================================================
     // Register tools and CLI
     // ========================================================================
     registerTools(api as unknown as Parameters<typeof registerTools>[0], manager);
     registerCli(api as unknown as Parameters<typeof registerCli>[0], manager);
 
     // ========================================================================
-    // Register service
+    // Register service — auto-apply runs on service start
     // ========================================================================
     api.registerService({
       id: "openclaw-patcher",
-      start: () => {
+      start: async () => {
         log.info("patcher service started");
+
+        if (!cfg.autoApplyOnStart) {
+          log.debug("auto-apply disabled; skipping patch check");
+          return;
+        }
+
+        try {
+          await manager.runAutoApply();
+        } catch (err) {
+          log.error("auto-apply failed on service start", err);
+        }
       },
       stop: () => {
         log.info("patcher service stopped");

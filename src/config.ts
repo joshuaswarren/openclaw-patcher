@@ -3,7 +3,8 @@ import type { PatcherConfig } from "./types.js";
 
 const PLUGIN_DIR = path.dirname(path.dirname(import.meta.url.replace("file://", "")));
 
-export function parseConfig(raw: Record<string, unknown>): PatcherConfig {
+export function parseConfig(raw?: Record<string, unknown> | null): PatcherConfig {
+  raw = raw ?? {};
   const pluginDir = getPluginDir();
   return {
     openclawInstallDir: asString(raw.openclawInstallDir, "/opt/homebrew/lib/node_modules/openclaw"),
