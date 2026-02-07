@@ -1,13 +1,13 @@
 {
-  "name": "cron-scheduler-fix",
-  "description": "Fix cron scheduler stall after SIGUSR1 restart - adds resetStoreLock and timer re-arming (for v2026.2.6+)",
+  "name": "cron-scheduler-fix-legacy",
+  "description": "Fix cron scheduler stall after SIGUSR1 restart and recomputeNextRuns race condition (for versions < 2026.2.6)",
   "issue": "https://github.com/openclaw/openclaw/pull/10350",
   "enabled": true,
   "targetFiles": [
     "dist/gateway-cli-*.js"
   ],
   "type": "js",
-  "minVersion": "2026.2.6",
+  "maxVersion": "2026.2.6",
   "appliedAt": null,
   "appliedVersion": null,
   "resolvedAt": null,

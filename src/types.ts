@@ -6,6 +6,10 @@ export interface PatchMeta {
   enabled: boolean;
   targetFiles: string[];
   type: "js" | "diff";
+  /** Minimum OpenClaw version this patch applies to (inclusive). Uses semver comparison. */
+  minVersion?: string;
+  /** Maximum OpenClaw version this patch applies to (exclusive). Uses semver comparison. */
+  maxVersion?: string;
   appliedAt: string | null;
   appliedVersion: string | null;
   resolvedAt: string | null;

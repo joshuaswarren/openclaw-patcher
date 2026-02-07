@@ -137,6 +137,21 @@ export class PatchManager {
       };
     }
 
+    // Check version targeting
+    const currentVersion = await this.getInstalledVersion();
+    if (currentVersion) {
+      const versionMatch = matchVersionRange(currentVersion, meta.minVersion, meta.maxVersion);
+      if (!versionMatch.matches) {
+        return {
+          name: patchName,
+          meta,
+          dir,
+          state: "disabled",
+          message: versionMatch.reason,
+        };
+      }
+    }
+
     const targetFiles = await this.resolveTargetFiles(meta.targetFiles);
     if (targetFiles.length === 0) {
       return {
@@ -365,12 +380,26 @@ export class PatchManager {
     const alreadyApplied = results.filter(
       (r) => r.state === "applied" && r.message === "Already applied",
     );
+    const versionSkipped = results.filter(
+      (r) => r.state === "disabled" && r.message.includes("Version"),
+    );
+    const manuallyDisabled = results.filter(
+      (r) => r.state === "disabled" && r.message === "Patch is disabled",
+    );
 
     if (applied.length > 0) {
       log.info(`applied ${applied.length} patch(es): ${applied.map((r) => r.name).join(", ")}`);
     }
     if (alreadyApplied.length > 0) {
       log.debug(`${alreadyApplied.length} patch(es) already applied`);
+    }
+    if (versionSkipped.length > 0) {
+      log.debug(
+        `${versionSkipped.length} patch(es) skipped (version mismatch): ${versionSkipped.map((r) => r.name).join(", ")}`,
+      );
+    }
+    if (manuallyDisabled.length > 0) {
+      log.debug(`${manuallyDisabled.length} patch(es) manually disabled`);
     }
     if (resolved.length > 0) {
       log.warn(
@@ -401,6 +430,8 @@ export class PatchManager {
       enabled: true,
       targetFiles: ["dist/gateway-cli-*.js"],
       type,
+      minVersion: undefined,  // Optional: minimum version (inclusive), e.g., "2026.2.6"
+      maxVersion: undefined,  // Optional: maximum version (exclusive), e.g., "2026.3.0"
       appliedAt: null,
       appliedVersion: null,
       resolvedAt: null,
@@ -504,6 +535,60 @@ function applyDiffHunks(content: string, hunks: DiffHunk[]): string {
     }
   }
   return result;
+}
+
+// =============================================================================
+// Version matching helper
+// =============================================================================
+
+interface VersionMatchResult {
+  matches: boolean;
+  reason: string;
+}
+
+/**
+ * Compare two version strings (e.g., "2026.2.6" vs "2026.2.3").
+ * Returns: -1 if a < b, 0 if a == b, 1 if a > b
+ */
+function compareVersions(a: string, b: string): number {
+  // Handle versions with suffixes like "2026.2.3-1" by splitting on "-"
+  const normalize = (v: string) => v.split("-")[0];
+  const partsA = normalize(a).split(".").map(Number);
+  const partsB = normalize(b).split(".").map(Number);
+
+  const maxLen = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < maxLen; i++) {
+    const numA = partsA[i] ?? 0;
+    const numB = partsB[i] ?? 0;
+    if (numA < numB) return -1;
+    if (numA > numB) return 1;
+  }
+  return 0;
+}
+
+/**
+ * Check if a version matches the given range (minVersion inclusive, maxVersion exclusive).
+ */
+function matchVersionRange(
+  version: string,
+  minVersion?: string,
+  maxVersion?: string,
+): VersionMatchResult {
+  if (minVersion && compareVersions(version, minVersion) < 0) {
+    return {
+      matches: false,
+      reason: `Version ${version} is below minimum ${minVersion}`,
+    };
+  }
+
+  if (maxVersion && compareVersions(version, maxVersion) >= 0) {
+    return {
+      matches: false,
+      reason: `Version ${version} is at or above maximum ${maxVersion}`,
+    };
+  }
+
+  return { matches: true, reason: "Version in range" };
 }
 
 // =============================================================================
