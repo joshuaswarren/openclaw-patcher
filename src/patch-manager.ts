@@ -412,13 +412,18 @@ export class PatchManager {
     const { meta } = status;
     const version = await this.getInstalledVersion();
 
+    let appliedCount = 0;
+
     try {
       if (meta.type === "asset") {
         // Apply asset operations
         await this.applyAssetOperations(patchName, meta, status.dir);
+        appliedCount = meta.assets?.length ?? 0;
       } else {
         // Apply file patches
         const targetFiles = await this.resolveTargetFiles(meta.targetFiles);
+        appliedCount = targetFiles.length;
+
         for (const filePath of targetFiles) {
           const content = await fs.readFile(filePath, "utf-8");
 
@@ -459,10 +464,11 @@ export class PatchManager {
       };
       await this.saveState();
 
+      const itemType = meta.type === "asset" ? "asset(s)" : "file(s)";
       return {
         ...status,
         state: "applied",
-        message: `Applied to ${targetFiles.length} file(s)`,
+        message: `Applied ${appliedCount} ${itemType}`,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

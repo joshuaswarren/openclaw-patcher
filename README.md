@@ -292,6 +292,8 @@ All commands are available under `openclaw patcher`:
 | `openclaw patcher add <name>` | Scaffold a new patch directory with template files |
 | `openclaw patcher status` | Show installed version, last-patched version, and patch states |
 | `openclaw patcher import-pr <number>` | Import a GitHub PR as a local patch |
+| `openclaw patcher compile-hooks [name]` | Compile bundled hook handlers from GitHub source |
+| `openclaw patcher fix-bundled-hooks` | One-command fix for PR #9295 (bundled hooks) |
 
 ### Examples
 
@@ -315,6 +317,14 @@ openclaw patcher add my-diff-fix --type diff
 # Import an unmerged PR as a patch
 openclaw patcher import-pr 10350
 openclaw patcher import-pr 10350 --dry-run
+
+# Fix bundled hooks broken since 2026.2.2 (PR #9295)
+openclaw patcher fix-bundled-hooks
+openclaw patcher fix-bundled-hooks --dry-run
+
+# Compile individual hooks manually
+openclaw patcher compile-hooks session-memory
+openclaw patcher compile-hooks  # all hooks
 
 # Full status overview
 openclaw patcher status

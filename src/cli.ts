@@ -1,4 +1,6 @@
 import type { PatchManager } from "./patch-manager.js";
+import { compileHandler, compileAllHandlers, getKnownHooks } from "./handler-compiler.js";
+import path from "node:path";
 
 interface CliApi {
   registerCli(
@@ -223,6 +225,152 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
               }
             }
           }
+          console.log();
+        });
+
+      // --- compile-hooks ---
+      cmd
+        .command("compile-hooks")
+        .argument("[hook-name]", "Specific hook to compile (omit for all)")
+        .option("--ref <ref>", "Git ref to fetch from (branch, tag, or commit)", "main")
+        .option("--dry-run", "Show what would be compiled without writing")
+        .description("Compile bundled hook handlers from GitHub source")
+        .action(async (hookName?: string, options?: Record<string, string | boolean>) => {
+          const ref = (options?.ref as string) ?? "main";
+          const dryRun = Boolean(options?.dryRun ?? options?.["dry-run"]);
+
+          // Output to a temp location first, then we can move to a patch
+          const outputDir = path.join(process.cwd(), ".compiled-hooks");
+
+          if (hookName) {
+            console.log(`\nCompiling ${hookName} handler from GitHub (ref: ${ref})...`);
+            if (dryRun) {
+              console.log("(dry run - no files will be created)\n");
+            }
+
+            const result = await compileHandler(hookName, outputDir, { ref, dryRun });
+
+            if (result.success) {
+              console.log(`\n[+] Successfully compiled ${hookName}`);
+              if (result.outputPath) {
+                console.log(`    Output: ${result.outputPath}`);
+              }
+            } else {
+              console.error(`\n[x] Failed to compile ${hookName}: ${result.error}`);
+            }
+          } else {
+            console.log(`\nCompiling all bundled hooks from GitHub (ref: ${ref})...`);
+            console.log(`Known hooks: ${getKnownHooks().join(", ")}\n`);
+            if (dryRun) {
+              console.log("(dry run - no files will be created)\n");
+            }
+
+            const { success, results } = await compileAllHandlers(outputDir, { ref, dryRun });
+
+            console.log("\n=== Compilation Results ===\n");
+            for (const [name, result] of Object.entries(results)) {
+              if (result.success) {
+                console.log(`  [+] ${name}: compiled`);
+              } else {
+                console.log(`  [x] ${name}: ${result.error}`);
+              }
+            }
+
+            if (success) {
+              console.log(`\nAll handlers compiled to: ${outputDir}/`);
+              console.log("\nTo use these handlers:");
+              console.log("  1. Create an asset patch with 'openclaw patcher add bundled-hooks-fix --type asset'");
+              console.log("  2. Copy handlers to the patch's assets/ directory");
+              console.log("  3. Configure assets in patch.json to copy them to dist/bundled/");
+            }
+          }
+          console.log();
+        });
+
+      // --- fix-bundled-hooks ---
+      cmd
+        .command("fix-bundled-hooks")
+        .option("--ref <ref>", "Git ref to fetch from (branch, tag, or commit)", "main")
+        .option("--dry-run", "Show what would be done without making changes")
+        .description("Create a complete patch for PR #9295 (bundled hooks fix)")
+        .action(async (options?: Record<string, string | boolean>) => {
+          const ref = (options?.ref as string) ?? "main";
+          const dryRun = Boolean(options?.dryRun ?? options?.["dry-run"]);
+
+          console.log("\n=== Creating Bundled Hooks Fix ===\n");
+          console.log("This will create a patch that:");
+          console.log("  1. Creates symlink dist/bundled -> dist/hooks/bundled");
+          console.log("  2. Compiles and injects handler.js files for all bundled hooks");
+          console.log(`\nFetching handlers from GitHub (ref: ${ref})...\n`);
+
+          if (dryRun) {
+            console.log("(dry run - no files will be created)\n");
+          }
+
+          const patchName = "bundled-hooks-fix";
+          const patchDir = path.join(process.cwd(), "patches", patchName);
+          const assetsDir = path.join(patchDir, "assets");
+
+          // Compile handlers
+          const { success, results } = await compileAllHandlers(assetsDir, { ref, dryRun });
+
+          if (!success) {
+            console.error("\n[x] Some handlers failed to compile:");
+            for (const [name, result] of Object.entries(results)) {
+              if (!result.success) {
+                console.error(`    ${name}: ${result.error}`);
+              }
+            }
+            console.log("\nPatch not created due to compilation errors.");
+            return;
+          }
+
+          if (dryRun) {
+            console.log("[+] All handlers would compile successfully");
+            console.log(`\nPatch would be created at: ${patchDir}/`);
+            return;
+          }
+
+          // Create patch.json
+          const patchMeta = {
+            name: patchName,
+            description: "Fix bundled hooks broken since 2026.2.2 (PR #9295) - creates symlink and injects compiled handlers",
+            issue: "https://github.com/openclaw/openclaw/pull/9295",
+            enabled: true,
+            targetFiles: [],
+            type: "asset",
+            assets: [
+              { src: "dist/hooks/bundled", dest: "dist/bundled", type: "symlink" },
+              ...getKnownHooks().map(hook => ({
+                src: `${hook}/handler.js`,
+                dest: `dist/bundled/${hook}/handler.js`,
+                type: "copy" as const,
+              })),
+            ],
+            minVersion: "2026.2.2",
+            appliedAt: null,
+            appliedVersion: null,
+            resolvedAt: null,
+            resolvedReason: null,
+          };
+
+          const fs = await import("node:fs/promises");
+          await fs.mkdir(patchDir, { recursive: true });
+          await fs.writeFile(
+            path.join(patchDir, "patch.json"),
+            JSON.stringify(patchMeta, null, 2),
+          );
+
+          console.log("\n[+] Patch created successfully!\n");
+          console.log(`Patch directory: ${patchDir}/`);
+          console.log("\nFiles:");
+          console.log("  patch.json");
+          for (const hook of getKnownHooks()) {
+            console.log(`  assets/${hook}/handler.js`);
+          }
+          console.log("\nNext steps:");
+          console.log("  1. Run 'openclaw patcher check' to verify");
+          console.log("  2. Run 'openclaw patcher apply bundled-hooks-fix' to apply");
           console.log();
         });
     },
