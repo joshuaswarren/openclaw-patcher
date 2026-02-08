@@ -4,7 +4,16 @@
 
 **Automatically re-apply patches to OpenClaw's installed files after every version update.**
 
-When you apply a hotfix to an OpenClaw source file (e.g., patching a cron scheduler bug in the bundled gateway), `npm update openclaw` overwrites your changes. openclaw-patcher solves this by storing your patches as code and re-applying them automatically on every gateway start.
+When you apply a hotfix to an OpenClaw source file, `npm update openclaw` overwrites your changes. openclaw-patcher solves this by storing your patches as code and re-applying them automatically on every gateway start.
+
+**Key features:**
+- **Text patches** — Fix bugs in bundled JavaScript files (e.g., [cron scheduler stall fix](https://github.com/openclaw/openclaw/pull/10350))
+- **Asset patches** — Inject files, create symlinks, or make directories
+- **Handler compiler** — Rebuild missing bundled hooks from source (fixes [PR #9295](https://github.com/openclaw/openclaw/pull/9295))
+- **PR import** — Automatically import unmerged GitHub PRs as local patches
+- **Version targeting** — Apply patches only to specific OpenClaw version ranges
+
+No more manual patching after updates. No more forgetting which files you changed.
 
 ---
 
@@ -13,8 +22,6 @@ When you apply a hotfix to an OpenClaw source file (e.g., patching a cron schedu
 1. You create a **patch directory** inside `patches/` with a metadata file (`patch.json`) and a patch implementation (`patch.js` or `patch.diff`).
 2. On every `gateway_start`, the plugin checks the installed OpenClaw version, detects which patches are still needed, and applies them.
 3. When an upstream release fixes the issue your patch addresses, the plugin detects this, marks the patch as **resolved**, and stops applying it.
-
-No more manual patching after updates. No more forgetting which files you changed.
 
 ---
 
@@ -76,7 +83,7 @@ patches/my-fix-name/
 ```json
 {
   "name": "cron-scheduler-fix",
-  "description": "Fix cron scheduler stall after SIGUSR1 restart (PR #10350)",
+  "description": "Fix cron scheduler stall after SIGUSR1 restart",
   "issue": "https://github.com/openclaw/openclaw/pull/10350",
   "enabled": true,
   "targetFiles": ["dist/gateway-cli-*.js"],
@@ -280,6 +287,59 @@ This is useful when:
 
 ---
 
+## Bundled Hooks Fix (Handler Compiler)
+
+Since OpenClaw v2026.2.2, the bundled hooks (`boot-md`, `command-logger`, `session-memory`, `soul-evil`) are broken because the build system migration to tsdown didn't include handler compilation. See [PR #9295](https://github.com/openclaw/openclaw/pull/9295) for details.
+
+The patcher includes a **handler compiler** that fetches the TypeScript source from GitHub and compiles standalone handler.js files using esbuild.
+
+### One-Command Fix
+
+```bash
+openclaw patcher fix-bundled-hooks
+```
+
+This command:
+1. Fetches handler source code from GitHub's main branch
+2. Transforms internal imports to use runtime stubs
+3. Bundles with esbuild to create standalone ESM modules
+4. Copies compiled handlers to `/opt/homebrew/lib/node_modules/openclaw/dist/bundled/`
+
+### Compiling Individual Hooks
+
+```bash
+# Compile a specific hook
+openclaw patcher compile-hooks session-memory
+
+# Compile all hooks
+openclaw patcher compile-hooks
+
+# Preview without writing files
+openclaw patcher compile-hooks --dry-run
+
+# Compile from a specific Git ref (branch, tag, or commit)
+openclaw patcher compile-hooks --ref v2026.2.5
+```
+
+### Supported Hooks
+
+| Hook | Description | Status |
+|------|-------------|--------|
+| `boot-md` | Bootstrap markdown injection | ✓ Working |
+| `command-logger` | Command logging | ✓ Working |
+| `session-memory` | Session memory management | ✓ Working |
+| `soul-evil` | Soul override hook | ✓ Compiles (limited functionality) |
+
+### After OpenClaw Updates
+
+Run `fix-bundled-hooks` after every `npm update openclaw` to restore the compiled handlers:
+
+```bash
+npm update -g openclaw && openclaw patcher fix-bundled-hooks
+```
+
+---
+
 ## CLI Commands
 
 All commands are available under `openclaw patcher`:
@@ -411,6 +471,7 @@ When a patch is resolved, the plugin logs a prominent warning message so you kno
     types.ts          # TypeScript interfaces
     github.ts         # GitHub API integration for PR import
     diff-converter.ts # Diff parsing and pattern matching
+    handler-compiler.ts # Bundled hook compilation from source
   patches/
     _template/        # Copy this to create a new patch
       patch.json
