@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `openclaw patcher fix-bundled-hooks` - One-command fix for PR #9295
   - Fetches handler source from GitHub, transforms imports, and bundles with esbuild
   - Includes stubs for internal OpenClaw functions
-  - Fixes 3 of 4 bundled hooks (boot-md, command-logger, session-memory)
+  - Compiles all 4 bundled hooks (boot-md, command-logger, session-memory, soul-evil)
 
 - **PR Import**: New `openclaw patcher import-pr <number>` command to automatically import unmerged PRs from GitHub as local patches
   - Fetches PR metadata and file diffs from GitHub API (uses `gh` CLI if available, falls back to unauthenticated API)
