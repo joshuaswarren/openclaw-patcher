@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Asset Patches**: New `type: "asset"` for injecting files, creating symlinks, or making directories
+  - Supports three operations: `copy`, `symlink`, `mkdir`
+  - For `copy`, place files in patch's `assets/` subdirectory
+  - Useful for fixes that require creating missing files or fixing path mismatches
+  - Example: fixing bundled hooks path with symlink from `dist/bundled` to `dist/hooks/bundled`
+
 - **PR Import**: New `openclaw patcher import-pr <number>` command to automatically import unmerged PRs from GitHub as local patches
   - Fetches PR metadata and file diffs from GitHub API (uses `gh` CLI if available, falls back to unauthenticated API)
   - Parses unified diffs and searches bundle files for matching patterns

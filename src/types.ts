@@ -1,3 +1,13 @@
+/** Asset operation for injecting files into the installation */
+export interface AssetOperation {
+  /** Source path relative to patch's assets/ directory */
+  src: string;
+  /** Destination path relative to OpenClaw install directory */
+  dest: string;
+  /** Operation type: copy file, create symlink, or create directory */
+  type: "copy" | "symlink" | "mkdir";
+}
+
 /** Metadata for a single patch, stored as patch.json */
 export interface PatchMeta {
   name: string;
@@ -5,11 +15,13 @@ export interface PatchMeta {
   issue?: string;
   enabled: boolean;
   targetFiles: string[];
-  type: "js" | "diff";
+  type: "js" | "diff" | "asset";
   /** Minimum OpenClaw version this patch applies to (inclusive). Uses semver comparison. */
   minVersion?: string;
   /** Maximum OpenClaw version this patch applies to (exclusive). Uses semver comparison. */
   maxVersion?: string;
+  /** Asset operations - copy files, create symlinks, or make directories */
+  assets?: AssetOperation[];
   appliedAt: string | null;
   appliedVersion: string | null;
   resolvedAt: string | null;

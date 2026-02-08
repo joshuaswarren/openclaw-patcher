@@ -147,6 +147,69 @@ Multiple hunks are supported -- just add more BEFORE/AFTER/END blocks.
 
 ---
 
+## Asset Patches (`type: "asset"`)
+
+Asset patches inject files, create symlinks, or make directories. Use them when a fix requires:
+
+- Creating missing files or directories
+- Fixing path mismatches with symlinks
+- Injecting pre-built assets that weren't compiled
+
+### patch.json for asset patches
+
+```json
+{
+  "name": "bundled-hooks-fix",
+  "description": "Fix bundled hooks path mismatch",
+  "type": "asset",
+  "targetFiles": [],
+  "assets": [
+    { "src": "dist/hooks/bundled", "dest": "dist/bundled", "type": "symlink" },
+    { "type": "mkdir", "src": "", "dest": "dist/some-dir" },
+    { "src": "handler.js", "dest": "dist/bundled/my-hook/handler.js", "type": "copy" }
+  ]
+}
+```
+
+### Asset operations
+
+| Type | Description | `src` | `dest` |
+|------|-------------|-------|--------|
+| `symlink` | Create symbolic link | Target path (relative to install dir) | Link location |
+| `mkdir` | Create directory | (ignored) | Directory to create |
+| `copy` | Copy file/directory | Path in patch's `assets/` folder | Destination in install dir |
+
+### Example: fixing a path with symlink
+
+```json
+{
+  "assets": [
+    { "src": "dist/hooks/bundled", "dest": "dist/bundled", "type": "symlink" }
+  ]
+}
+```
+
+### Example: injecting pre-built files
+
+For `copy` operations, place files in your patch's `assets/` subdirectory:
+
+```
+patches/my-fix/
+├── patch.json
+└── assets/
+    └── handler.js      # Will be copied to dest path
+```
+
+```json
+{
+  "assets": [
+    { "src": "handler.js", "dest": "dist/bundled/my-hook/handler.js", "type": "copy" }
+  ]
+}
+```
+
+---
+
 ## Importing PRs as Patches
 
 Want to use an unmerged fix from the OpenClaw repo? Import it directly as a patch:

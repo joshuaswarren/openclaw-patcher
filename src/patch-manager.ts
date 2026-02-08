@@ -10,6 +10,7 @@ import {
   type DiffHunk as PRDiffHunk,
 } from "./diff-converter.js";
 import type {
+  AssetOperation,
   JsPatchModule,
   PatcherConfig,
   PatcherState,
@@ -163,6 +164,11 @@ export class PatchManager {
       }
     }
 
+    // Asset patches don't need targetFiles
+    if (meta.type === "asset") {
+      return this.checkAssetPatch(patchName, meta, dir);
+    }
+
     const targetFiles = await this.resolveTargetFiles(meta.targetFiles);
     if (targetFiles.length === 0) {
       return {
@@ -178,6 +184,140 @@ export class PatchManager {
       return this.checkJsPatch(patchName, meta, dir, targetFiles);
     } else {
       return this.checkDiffPatch(patchName, meta, dir, targetFiles);
+    }
+  }
+
+  /** Check an asset-type patch (file/directory/symlink injection) */
+  private async checkAssetPatch(
+    patchName: string,
+    meta: PatchMeta,
+    dir: string,
+  ): Promise<PatchStatus> {
+    if (!meta.assets || meta.assets.length === 0) {
+      return {
+        name: patchName,
+        meta,
+        dir,
+        state: "error",
+        message: "No assets defined in patch.json",
+      };
+    }
+
+    let allApplied = true;
+    let anyMissing = false;
+
+    for (const asset of meta.assets) {
+      const destPath = path.join(this.config.openclawInstallDir, asset.dest);
+      try {
+        const stats = await fs.lstat(destPath);
+        if (asset.type === "symlink") {
+          if (!stats.isSymbolicLink()) {
+            anyMissing = true;
+          }
+        } else if (asset.type === "mkdir") {
+          if (!stats.isDirectory()) {
+            anyMissing = true;
+          }
+        } else {
+          // copy - check if file exists
+          if (!stats.isFile()) {
+            anyMissing = true;
+          }
+        }
+      } catch {
+        anyMissing = true;
+        allApplied = false;
+      }
+    }
+
+    if (anyMissing) {
+      return { name: patchName, meta, dir, state: "pending", message: "Asset(s) missing" };
+    }
+
+    return { name: patchName, meta, dir, state: "applied", message: "All assets in place" };
+  }
+
+  /** Apply asset operations (copy files, create symlinks, make directories) */
+  private async applyAssetOperations(
+    patchName: string,
+    meta: PatchMeta,
+    patchDir: string,
+  ): Promise<void> {
+    if (!meta.assets || meta.assets.length === 0) {
+      throw new Error("No assets defined");
+    }
+
+    const assetsDir = path.join(patchDir, "assets");
+
+    for (const asset of meta.assets) {
+      const destPath = path.join(this.config.openclawInstallDir, asset.dest);
+
+      if (asset.type === "mkdir") {
+        await fs.mkdir(destPath, { recursive: true });
+        log.info(`created directory: ${destPath}`);
+      } else if (asset.type === "symlink") {
+        // For symlinks, src is the target path (can be relative or absolute)
+        const targetPath = asset.src.startsWith("/")
+          ? asset.src
+          : path.join(this.config.openclawInstallDir, asset.src);
+
+        // Remove existing file/symlink if present
+        try {
+          await fs.unlink(destPath);
+        } catch {
+          // Ignore - file doesn't exist
+        }
+
+        // Ensure parent directory exists
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+        // Create symlink (relative to dest's parent directory)
+        const relativeTarget = path.relative(path.dirname(destPath), targetPath);
+        await fs.symlink(relativeTarget, destPath);
+        log.info(`created symlink: ${destPath} -> ${relativeTarget}`);
+      } else {
+        // copy - src is relative to assets/ directory
+        const srcPath = path.join(assetsDir, asset.src);
+
+        // Check if source exists
+        try {
+          await fs.access(srcPath);
+        } catch {
+          throw new Error(`Asset source not found: ${srcPath}`);
+        }
+
+        // Ensure parent directory exists
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+
+        // Check if source is a directory
+        const srcStats = await fs.stat(srcPath);
+        if (srcStats.isDirectory()) {
+          // Recursively copy directory
+          await this.copyDir(srcPath, destPath);
+          log.info(`copied directory: ${srcPath} -> ${destPath}`);
+        } else {
+          // Copy single file
+          await fs.copyFile(srcPath, destPath);
+          log.info(`copied file: ${srcPath} -> ${destPath}`);
+        }
+      }
+    }
+  }
+
+  /** Recursively copy a directory */
+  private async copyDir(src: string, dest: string): Promise<void> {
+    await fs.mkdir(dest, { recursive: true });
+    const entries = await fs.readdir(src, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        await this.copyDir(srcPath, destPath);
+      } else {
+        await fs.copyFile(srcPath, destPath);
+      }
     }
   }
 
@@ -270,34 +410,40 @@ export class PatchManager {
     }
 
     const { meta } = status;
-    const targetFiles = await this.resolveTargetFiles(meta.targetFiles);
     const version = await this.getInstalledVersion();
 
     try {
-      for (const filePath of targetFiles) {
-        const content = await fs.readFile(filePath, "utf-8");
+      if (meta.type === "asset") {
+        // Apply asset operations
+        await this.applyAssetOperations(patchName, meta, status.dir);
+      } else {
+        // Apply file patches
+        const targetFiles = await this.resolveTargetFiles(meta.targetFiles);
+        for (const filePath of targetFiles) {
+          const content = await fs.readFile(filePath, "utf-8");
 
-        // Backup if enabled
-        if (this.config.backupBeforePatch) {
-          await fs.writeFile(`${filePath}.bak`, content, "utf-8");
-          log.debug(`backed up ${filePath}`);
-        }
-
-        let patched: string;
-        if (meta.type === "js") {
-          const patchModule = await this.loadJsPatchModule(patchName);
-          if (!patchModule) {
-            return { ...status, state: "error", message: "Could not load patch.js for apply" };
+          // Backup if enabled
+          if (this.config.backupBeforePatch) {
+            await fs.writeFile(`${filePath}.bak`, content, "utf-8");
+            log.debug(`backed up ${filePath}`);
           }
-          patched = patchModule.apply(content, filePath);
-        } else {
-          const diffPath = path.join(status.dir, "patch.diff");
-          const diffContent = await fs.readFile(diffPath, "utf-8");
-          patched = applyDiffHunks(content, parseDiffHunks(diffContent));
-        }
 
-        await fs.writeFile(filePath, patched, "utf-8");
-        log.info(`patched ${filePath}`);
+          let patched: string;
+          if (meta.type === "js") {
+            const patchModule = await this.loadJsPatchModule(patchName);
+            if (!patchModule) {
+              return { ...status, state: "error", message: "Could not load patch.js for apply" };
+            }
+            patched = patchModule.apply(content, filePath);
+          } else {
+            const diffPath = path.join(status.dir, "patch.diff");
+            const diffContent = await fs.readFile(diffPath, "utf-8");
+            patched = applyDiffHunks(content, parseDiffHunks(diffContent));
+          }
+
+          await fs.writeFile(filePath, patched, "utf-8");
+          log.info(`patched ${filePath}`);
+        }
       }
 
       // Update patch metadata
