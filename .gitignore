@@ -24,6 +24,5 @@ Thumbs.db
 patches/.patcher-state.json
 patches/*/.bak
 
-# Auto-generated claude-mem context files
-CLAUDE.md
+# Auto-generated claude-mem context files (in subdirectories only)
 src/CLAUDE.md
