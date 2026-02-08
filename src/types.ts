@@ -51,3 +51,53 @@ export interface PatcherState {
     appliedAt: string | null;
   }>;
 }
+
+// =============================================================================
+// PR Import Types
+// =============================================================================
+
+/** Metadata for a GitHub Pull Request */
+export interface PRMetadata {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  files: PRFile[];
+}
+
+/** A file changed in a PR */
+export interface PRFile {
+  path: string;
+  status: string;
+  /** The unified diff patch for this file */
+  patch: string;
+}
+
+/** Options for importing a PR as a patch */
+export interface PRImportOptions {
+  prNumber: number;
+  repo: string;
+  type: "js" | "diff";
+  name?: string;
+  dryRun: boolean;
+}
+
+/** Result of importing a PR */
+export interface PRImportResult {
+  success: boolean;
+  patchDir?: string;
+  patchName: string;
+  message: string;
+  /** Hunks that couldn't be mapped to bundle files */
+  unmappedHunks: UnmappedHunk[];
+  /** Files created during import */
+  filesCreated: string[];
+}
+
+/** A hunk that couldn't be located in the bundle files */
+export interface UnmappedHunk {
+  sourcePath: string;
+  oldText: string;
+  reason: string;
+}

@@ -1,6 +1,6 @@
 {
   "name": "openclaw-patcher",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Automatically re-apply patches to OpenClaw's installed files after version updates.",
   "keywords": [

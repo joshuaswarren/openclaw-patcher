@@ -155,6 +155,76 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
           }
           console.log();
         });
+
+      // --- import-pr ---
+      cmd
+        .command("import-pr")
+        .argument("<pr-number>", "GitHub PR number to import")
+        .option("-r, --repo <repo>", "Repository (owner/name)", "openclaw/openclaw")
+        .option("-t, --type <type>", "Patch type: js or diff", "diff")
+        .option("-n, --name <name>", "Override patch name (default: pr-{number})")
+        .option("--dry-run", "Show what would be created without writing")
+        .description("Import a GitHub PR as a local patch")
+        .action(async (prNumberStr: string, options?: Record<string, string | boolean>) => {
+          const prNumber = parseInt(prNumberStr, 10);
+          if (isNaN(prNumber) || prNumber <= 0) {
+            console.error(`Invalid PR number: ${prNumberStr}`);
+            return;
+          }
+
+          const repo = (options?.repo as string) ?? "openclaw/openclaw";
+          const type = ((options?.type as string) ?? "diff") as "js" | "diff";
+          const name = options?.name as string | undefined;
+          const dryRun = Boolean(options?.dryRun ?? options?.["dry-run"]);
+
+          console.log(`\nImporting PR #${prNumber} from ${repo}...`);
+          if (dryRun) {
+            console.log("(dry run - no files will be created)\n");
+          }
+
+          const result = await manager.scaffoldFromPR({
+            prNumber,
+            repo,
+            type,
+            name,
+            dryRun,
+          });
+
+          if (result.success) {
+            console.log(`\n[+] ${result.message}\n`);
+
+            if (result.filesCreated.length > 0) {
+              console.log("Files created:");
+              for (const file of result.filesCreated) {
+                console.log(`  ${file}`);
+              }
+            }
+
+            if (result.unmappedHunks.length > 0) {
+              console.log(`\n[!] ${result.unmappedHunks.length} hunk(s) could not be mapped:`);
+              for (const hunk of result.unmappedHunks) {
+                console.log(`  - ${hunk.sourcePath}: ${hunk.reason}`);
+                console.log(`    Pattern: ${hunk.oldText.slice(0, 60)}...`);
+              }
+            }
+
+            if (!dryRun) {
+              console.log("\nNext steps:");
+              console.log("  1. Review the generated patch files");
+              console.log("  2. Run 'openclaw patcher check' to verify detection");
+              console.log("  3. Run 'openclaw patcher apply' to apply the patch");
+            }
+          } else {
+            console.error(`\n[x] ${result.message}`);
+            if (result.unmappedHunks.length > 0) {
+              console.log("\nUnmapped hunks:");
+              for (const hunk of result.unmappedHunks) {
+                console.log(`  - ${hunk.sourcePath}: ${hunk.reason}`);
+              }
+            }
+          }
+          console.log();
+        });
     },
     { commands: ["patcher"] },
   );

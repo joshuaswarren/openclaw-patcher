@@ -100,6 +100,8 @@ patches/my-fix-name/
 | `appliedVersion` | OpenClaw version the patch was last applied to (auto-set) |
 | `resolvedAt` | Timestamp when the patch was detected as no longer needed (auto-set) |
 | `resolvedReason` | Why the patch was resolved (auto-set) |
+| `minVersion` | Minimum OpenClaw version (inclusive) for patch to apply |
+| `maxVersion` | Maximum OpenClaw version (exclusive) for patch to apply |
 
 ### JS patches (`patch.js`)
 
@@ -145,6 +147,76 @@ Multiple hunks are supported -- just add more BEFORE/AFTER/END blocks.
 
 ---
 
+## Importing PRs as Patches
+
+Want to use an unmerged fix from the OpenClaw repo? Import it directly as a patch:
+
+```bash
+openclaw patcher import-pr 10350
+```
+
+This fetches PR #10350 from GitHub, parses the diff, finds matching patterns in your installed bundle files, and creates a ready-to-apply patch.
+
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `-r, --repo <repo>` | Repository to fetch from (default: `openclaw/openclaw`) |
+| `-t, --type <type>` | Patch type: `js` or `diff` (default: `diff`) |
+| `-n, --name <name>` | Override patch name (default: `pr-{number}`) |
+| `--dry-run` | Preview what would be created without writing files |
+
+### Examples
+
+```bash
+# Preview what would be imported
+openclaw patcher import-pr 10350 --dry-run
+
+# Import from a fork
+openclaw patcher import-pr 42 --repo myuser/openclaw
+
+# Import as a JS patch for more control
+openclaw patcher import-pr 10350 --type js
+
+# Custom name
+openclaw patcher import-pr 10350 --name cron-fix-v2
+```
+
+### How It Works
+
+1. Fetches PR metadata and file diffs from GitHub (uses `gh` CLI if available, falls back to API)
+2. Parses unified diffs into before/after hunks
+3. Searches your installed bundle files for matching "before" patterns
+4. Creates a patch with the matched hunks
+5. Reports any hunks that couldn't be mapped (may need manual adjustment)
+
+The original PR diff is saved as `pr-original.diff` for reference.
+
+---
+
+## Version Targeting
+
+Patches can target specific OpenClaw versions using `minVersion` and `maxVersion`:
+
+```json
+{
+  "name": "cron-scheduler-fix",
+  "minVersion": "2026.2.6",
+  "maxVersion": "2026.3.0",
+  ...
+}
+```
+
+- `minVersion` (inclusive): Patch only applies to this version or newer
+- `maxVersion` (exclusive): Patch only applies to versions before this
+
+This is useful when:
+- A fix is only needed for certain version ranges
+- You maintain different patches for different OpenClaw versions
+- A patch should stop applying once upstream ships a fix in a specific version
+
+---
+
 ## CLI Commands
 
 All commands are available under `openclaw patcher`:
@@ -156,6 +228,7 @@ All commands are available under `openclaw patcher`:
 | `openclaw patcher check` | Check which patches are still needed |
 | `openclaw patcher add <name>` | Scaffold a new patch directory with template files |
 | `openclaw patcher status` | Show installed version, last-patched version, and patch states |
+| `openclaw patcher import-pr <number>` | Import a GitHub PR as a local patch |
 
 ### Examples
 
@@ -175,6 +248,10 @@ openclaw patcher apply cron-scheduler-fix
 # Create a new patch
 openclaw patcher add my-new-fix
 openclaw patcher add my-diff-fix --type diff
+
+# Import an unmerged PR as a patch
+openclaw patcher import-pr 10350
+openclaw patcher import-pr 10350 --dry-run
 
 # Full status overview
 openclaw patcher status
@@ -259,6 +336,8 @@ When a patch is resolved, the plugin logs a prominent warning message so you kno
     cli.ts            # CLI command registration
     tools.ts          # Agent tool registration
     types.ts          # TypeScript interfaces
+    github.ts         # GitHub API integration for PR import
+    diff-converter.ts # Diff parsing and pattern matching
   patches/
     _template/        # Copy this to create a new patch
       patch.json
@@ -269,6 +348,7 @@ When a patch is resolved, the plugin logs a prominent warning message so you kno
   openclaw.plugin.json
   tsconfig.json
   tsup.config.ts
+  CHANGELOG.md        # Version history
 ```
 
 ---

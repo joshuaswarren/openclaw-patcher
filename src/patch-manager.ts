@@ -1,12 +1,23 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { log } from "./logger.js";
+import { fetchPR } from "./github.js";
+import {
+  parsePRFilePatch,
+  findPatternsInBundles,
+  hunksToSimpleFormat,
+  findMinimalPattern,
+  type DiffHunk as PRDiffHunk,
+} from "./diff-converter.js";
 import type {
   JsPatchModule,
   PatcherConfig,
   PatcherState,
   PatchMeta,
   PatchStatus,
+  PRImportOptions,
+  PRImportResult,
+  UnmappedHunk,
 } from "./types.js";
 
 export class PatchManager {
@@ -457,6 +468,191 @@ export class PatchManager {
     return dir;
   }
 
+  /**
+   * Import a GitHub PR as a patch
+   *
+   * This fetches the PR from GitHub, parses the diffs, searches the bundle
+   * files for the patterns, and creates a diff-type patch.
+   */
+  async scaffoldFromPR(options: PRImportOptions): Promise<PRImportResult> {
+    const { prNumber, repo, type, dryRun } = options;
+    const patchName = options.name ?? `pr-${prNumber}`;
+
+    log.info(`importing PR #${prNumber} from ${repo} as "${patchName}"...`);
+
+    // Check if patch already exists
+    const patchDir = path.join(this.config.patchesDir, patchName);
+    try {
+      await fs.access(patchDir);
+      return {
+        success: false,
+        patchName,
+        message: `Patch "${patchName}" already exists. Use --name to specify a different name.`,
+        unmappedHunks: [],
+        filesCreated: [],
+      };
+    } catch {
+      // Directory doesn't exist, which is what we want
+    }
+
+    // Fetch PR from GitHub
+    let prData;
+    try {
+      prData = await fetchPR(prNumber, repo);
+    } catch (err) {
+      return {
+        success: false,
+        patchName,
+        message: err instanceof Error ? err.message : String(err),
+        unmappedHunks: [],
+        filesCreated: [],
+      };
+    }
+
+    // Parse all file patches into hunks
+    const allHunks: PRDiffHunk[] = [];
+    const originalDiffs: string[] = [];
+
+    for (const file of prData.files) {
+      if (!file.patch) {
+        log.debug(`skipping ${file.path} (no patch content)`);
+        continue;
+      }
+
+      // Only process TypeScript/JavaScript source files
+      if (!file.path.endsWith(".ts") && !file.path.endsWith(".js")) {
+        log.debug(`skipping ${file.path} (not a TS/JS file)`);
+        continue;
+      }
+
+      originalDiffs.push(`--- a/${file.path}\n+++ b/${file.path}\n${file.patch}`);
+      const hunks = parsePRFilePatch(file.patch, file.path);
+      allHunks.push(...hunks);
+    }
+
+    if (allHunks.length === 0) {
+      return {
+        success: false,
+        patchName,
+        message: "No applicable code changes found in PR (no TS/JS files with patches)",
+        unmappedHunks: [],
+        filesCreated: [],
+      };
+    }
+
+    log.info(`parsed ${allHunks.length} hunk(s) from ${prData.files.length} file(s)`);
+
+    // Find patterns in bundle files
+    const bundleDir = path.join(this.config.openclawInstallDir, "dist");
+    const patterns = allHunks.map((h) => findMinimalPattern(h.oldText));
+    const patternToFile = await findPatternsInBundles(patterns, bundleDir);
+
+    // Separate mapped and unmapped hunks
+    const mappedHunks: PRDiffHunk[] = [];
+    const unmappedHunks: UnmappedHunk[] = [];
+    const targetFiles = new Set<string>();
+
+    for (let i = 0; i < allHunks.length; i++) {
+      const hunk = allHunks[i];
+      const pattern = patterns[i];
+      const bundleFile = patternToFile.get(pattern);
+
+      if (bundleFile) {
+        mappedHunks.push(hunk);
+        // Store relative path for targetFiles
+        const relativePath = path.relative(this.config.openclawInstallDir, bundleFile);
+        targetFiles.add(relativePath);
+      } else {
+        unmappedHunks.push({
+          sourcePath: hunk.sourcePath,
+          oldText: hunk.oldText.slice(0, 100) + (hunk.oldText.length > 100 ? "..." : ""),
+          reason: "Pattern not found in any bundle file",
+        });
+      }
+    }
+
+    if (mappedHunks.length === 0) {
+      return {
+        success: false,
+        patchName,
+        message: `None of the ${allHunks.length} hunk(s) could be mapped to bundle files. ` +
+                 "The PR may target code that doesn't exist in the installed version.",
+        unmappedHunks,
+        filesCreated: [],
+      };
+    }
+
+    if (dryRun) {
+      return {
+        success: true,
+        patchName,
+        message: `[DRY RUN] Would create patch "${patchName}" with ${mappedHunks.length} hunk(s) ` +
+                 `targeting ${targetFiles.size} file(s). ${unmappedHunks.length} hunk(s) unmapped.`,
+        unmappedHunks,
+        filesCreated: [
+          path.join(patchDir, "patch.json"),
+          path.join(patchDir, type === "js" ? "patch.js" : "patch.diff"),
+          path.join(patchDir, "pr-original.diff"),
+        ],
+      };
+    }
+
+    // Create the patch directory and files
+    await fs.mkdir(patchDir, { recursive: true });
+    const filesCreated: string[] = [];
+
+    // Create patch.json metadata
+    const meta: PatchMeta = {
+      name: patchName,
+      description: prData.title,
+      issue: prData.url,
+      enabled: true,
+      targetFiles: Array.from(targetFiles).map((f) => f.replace(/gateway-cli-[^.]+\.js/, "gateway-cli-*.js")),
+      type,
+      appliedAt: null,
+      appliedVersion: null,
+      resolvedAt: null,
+      resolvedReason: null,
+    };
+
+    const metaPath = path.join(patchDir, "patch.json");
+    await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), "utf-8");
+    filesCreated.push(metaPath);
+
+    // Create patch file based on type
+    if (type === "diff") {
+      const diffContent = hunksToSimpleFormat(mappedHunks);
+      const diffPath = path.join(patchDir, "patch.diff");
+      await fs.writeFile(diffPath, diffContent, "utf-8");
+      filesCreated.push(diffPath);
+    } else {
+      // For JS type, generate a template with the patterns filled in
+      const jsContent = generateJsPatchFromHunks(mappedHunks);
+      const jsPath = path.join(patchDir, "patch.js");
+      await fs.writeFile(jsPath, jsContent, "utf-8");
+      filesCreated.push(jsPath);
+    }
+
+    // Save the original unified diff for reference
+    const originalDiffPath = path.join(patchDir, "pr-original.diff");
+    await fs.writeFile(originalDiffPath, originalDiffs.join("\n\n"), "utf-8");
+    filesCreated.push(originalDiffPath);
+
+    log.info(`created patch "${patchName}" with ${mappedHunks.length} hunk(s)`);
+    if (unmappedHunks.length > 0) {
+      log.warn(`${unmappedHunks.length} hunk(s) could not be mapped and were skipped`);
+    }
+
+    return {
+      success: true,
+      patchDir,
+      patchName,
+      message: `Successfully created patch "${patchName}" from PR #${prNumber}`,
+      unmappedHunks,
+      filesCreated,
+    };
+  }
+
   /** Get summary for status display */
   async getStatusSummary(): Promise<{
     installedVersion: string | null;
@@ -650,3 +846,87 @@ OLD_CODE_TO_REPLACE
 NEW_REPLACEMENT_CODE
 === END ===
 `;
+
+// =============================================================================
+// PR Import Helpers
+// =============================================================================
+
+/**
+ * Generate a JS-type patch module from parsed hunks
+ */
+function generateJsPatchFromHunks(hunks: PRDiffHunk[]): string {
+  // Build pattern arrays for check/apply
+  const replacements = hunks.map((h, i) => ({
+    id: i + 1,
+    old: escapeForJs(h.oldText),
+    new: escapeForJs(h.newText),
+  }));
+
+  const checksCode = replacements
+    .map((r) => `    // Hunk ${r.id}\n    content.includes(${r.old})`)
+    .join(" ||\n");
+
+  const appliesCode = replacements
+    .map(
+      (r) =>
+        `  // Hunk ${r.id}\n  result = result.replace(\n    ${r.old},\n    ${r.new}\n  );`
+    )
+    .join("\n\n");
+
+  return `// Auto-generated from PR import
+// Review and adjust the patterns as needed for your OpenClaw version
+
+export default {
+  /**
+   * Check if this patch is still needed.
+   * Return true if the file contains the buggy code that needs patching.
+   */
+  check(fileContent, filePath) {
+    const content = fileContent;
+    return (
+${checksCode}
+    );
+  },
+
+  /**
+   * Check if the upstream has fixed the issue (patch no longer needed).
+   * Return true if the upstream fix is detected.
+   */
+  isResolved(fileContent, filePath) {
+    // Check if new code is already present
+    const content = fileContent;
+    const newCodePresent = ${replacements.map((r) => `content.includes(${r.new})`).join(" &&\n      ")};
+    return newCodePresent;
+  },
+
+  /**
+   * Apply the patch to the file content.
+   * Return the modified file content.
+   */
+  apply(fileContent, filePath) {
+    let result = fileContent;
+
+${appliesCode}
+
+    return result;
+  }
+};
+`;
+}
+
+/**
+ * Escape a string for use as a JavaScript string literal
+ */
+function escapeForJs(str: string): string {
+  // Use template literals for multi-line strings
+  const escaped = str
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\${/g, "\\${");
+
+  if (str.includes("\n")) {
+    return "`" + escaped + "`";
+  }
+
+  return JSON.stringify(str);
+}
