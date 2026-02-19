@@ -21,6 +21,17 @@ interface CliCommand {
   command(name: string): CliCommand;
 }
 
+function getStringArg(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function getRecordArg<T extends string | boolean>(
+  value: unknown,
+): Record<string, T> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, T>;
+}
+
 export function registerCli(api: CliApi, manager: PatchManager): void {
   api.registerCli(
     ({ program }) => {
@@ -60,7 +71,8 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
         .command("apply")
         .argument("[name]", "Specific patch name to apply (omit for all)")
         .description("Apply a specific patch or all pending patches")
-        .action(async (name?: string) => {
+        .action(async (...args: unknown[]) => {
+          const name = getStringArg(args[0]);
           if (name) {
             const result = await manager.applyPatch(name);
             const icon = stateIcon(result.state);
@@ -122,7 +134,13 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
         .argument("<name>", "Name for the new patch (e.g., cron-scheduler-fix)")
         .option("-t, --type <type>", "Patch type: js or diff", "js")
         .description("Scaffold a new patch directory with template files")
-        .action(async (name: string, options?: Record<string, string>) => {
+        .action(async (...args: unknown[]) => {
+          const name = getStringArg(args[0]);
+          if (!name) {
+            console.error("Missing required patch name.");
+            return;
+          }
+          const options = getRecordArg<string>(args[1]);
           const type = (options?.type ?? "js") as "js" | "diff";
           const dir = await manager.scaffoldPatch(name, type);
           console.log(`\nCreated patch scaffold at:\n  ${dir}/\n`);
@@ -167,7 +185,13 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
         .option("-n, --name <name>", "Override patch name (default: pr-{number})")
         .option("--dry-run", "Show what would be created without writing")
         .description("Import a GitHub PR as a local patch")
-        .action(async (prNumberStr: string, options?: Record<string, string | boolean>) => {
+        .action(async (...args: unknown[]) => {
+          const prNumberStr = getStringArg(args[0]);
+          const options = getRecordArg<string | boolean>(args[1]);
+          if (!prNumberStr) {
+            console.error("Missing required PR number.");
+            return;
+          }
           const prNumber = parseInt(prNumberStr, 10);
           if (isNaN(prNumber) || prNumber <= 0) {
             console.error(`Invalid PR number: ${prNumberStr}`);
@@ -235,7 +259,9 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
         .option("--ref <ref>", "Git ref to fetch from (branch, tag, or commit)", "main")
         .option("--dry-run", "Show what would be compiled without writing")
         .description("Compile bundled hook handlers from GitHub source")
-        .action(async (hookName?: string, options?: Record<string, string | boolean>) => {
+        .action(async (...args: unknown[]) => {
+          const hookName = getStringArg(args[0]);
+          const options = getRecordArg<string | boolean>(args[1]);
           const ref = (options?.ref as string) ?? "main";
           const dryRun = Boolean(options?.dryRun ?? options?.["dry-run"]);
 
@@ -293,7 +319,8 @@ export function registerCli(api: CliApi, manager: PatchManager): void {
         .option("--ref <ref>", "Git ref to fetch from (branch, tag, or commit)", "main")
         .option("--dry-run", "Show what would be done without making changes")
         .description("Create a complete patch for PR #9295 (bundled hooks fix)")
-        .action(async (options?: Record<string, string | boolean>) => {
+        .action(async (...args: unknown[]) => {
+          const options = getRecordArg<string | boolean>(args[0]);
           const ref = (options?.ref as string) ?? "main";
           const dryRun = Boolean(options?.dryRun ?? options?.["dry-run"]);
 
